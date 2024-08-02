@@ -4,34 +4,62 @@
 #include <IRrecv.h>
 #include <IRutils.h>
 #include <IRsend.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <UniversalTelegramBot.h>
+#include <ArduinoJson.h>
+
+
+/* """"""Telegra* Section """""" */
+#define BOTtoken "6965994152:AAFRiiVZGw56Vt0yliTM6chPSwcdMXz5JIE"
+#define CHAT_ID "5567601893"
+
+const char* ssid = "GRT-TI";
+const char* password = "&*(suporte)_+";
+
+WiFiClientSecure client;
+UniversalTelegramBot bot(BOTtoken, client);
+
+int botRequestDelay = 1000;
+unsigned long lastTimeBotRan;
+bool buttonPressed = false;
+
 
 /* """"""Sensor de Temperatura Secion"""""" */
 //DEFINIÇÃO DE PINOS
 #define pinSensor 4
 
 //INTERVALO DE LEITURA
-#define intervalo 5000
+#define intervalo 2000
 
 //CRIANDO VARIAVEIS E INSTANCIANDO OBJETOS
 unsigned long delayIntervalo;
 dht sensorDHT;
 
 
-/* """"""Recetor Infravermelho Secion"""""" */
+/* """"""Receptor Infravermelho Secion"""""" */
 const uint16_t kRecvPin = 14;
 IRrecv irrecv(kRecvPin);
 decode_results results;
 
 
-/* """"""Emissor Infravermelho Secion"""""" */
+/* """"""LedEmissor Infravermelho Secion"""""" */
 const uint16_t kIrLed = 5;
 IRsend irsend(kIrLed);
 
+
+String irCommand = ""; // Variável global para armazenar o comando IR
+
+float globalTemperature = 0.0;
+float globalHumidity = 0.0;
+String globalStatus = "OK"; // Status do sensor
 
 // Declaração das funções das tarefas
 void Task1(void *pvParameters);
 void Task2(void *pvParameters);
 void Task3(void *pvParameters);
+void Task4(void *pvParameters);
+void handleNewMessages(int numNewMessages);
 
 void setup() {
   // Inicialização do monitor serial
@@ -56,7 +84,7 @@ void setup() {
   xTaskCreate(
     Task1,   // Função da tarefa
     "Task 1", // Nome da tarefa
-    1000,    // Tamanho da pilha
+    5000,    // Tamanho da pilha
     NULL,    // Parâmetro para a tarefa
     1,       // Prioridade da tarefa
     NULL);   // Handle da tarefa
@@ -66,7 +94,7 @@ void setup() {
     "Task 2", // Nome da tarefa
     10000,    // Tamanho da pilha
     NULL,    // Parâmetro para a tarefa
-    1,       // Prioridade da tarefa
+    2,       // Prioridade da tarefa
     NULL);   // Handle da tarefa
 
   xTaskCreate(
@@ -74,8 +102,34 @@ void setup() {
     "Task 3", // Nome da tarefa
     10000,    // Tamanho da pilha
     NULL,    // Parâmetro para a tarefa
-    1,       // Prioridade da tarefa
+    4,       // Prioridade da tarefa
     NULL);   // Handle da tarefa
+
+    xTaskCreate(
+    Task4,   // Função da tarefa
+    "Task 4", // Nome da tarefa
+    10000,    // Tamanho da pilha
+    NULL,    // Parâmetro para a tarefa
+    3,       // Prioridade da tarefa
+    NULL);   // Handle da tarefa
+
+
+    // Inicializar conex˜ao Wi-Fi
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
+    #ifdef ESP32
+    client.setCACert(TELEGRAM_CERTIFICATE_ROOT); // Add root certificate f
+    #endif
+
+    while (WiFi.status() != WL_CONNECTED) {
+
+      delay(1000);
+      Serial.println("Connecting to WiFi..");
+
+    }
+    // Printar enderec¸o IP local
+    Serial.println(WiFi.localIP());
+    
 }
 
 void loop() {
@@ -120,7 +174,9 @@ void Task1(void *pvParameters) {
           Serial.print("Unknown error,\t");
           break;
       }
-  
+
+      globalTemperature = sensorDHT.temperature;
+      globalHumidity = sensorDHT.humidity;
 
       // EXIBINDO DADOS LIDOS
       Serial.print(stop - start);
@@ -158,10 +214,101 @@ void Task3(void *pvParameters) {
 
   while (1) {
 
-    Serial.println("Botao apertado!");
-    irsend.sendNEC(0x57E3E817);
-    delay(2000);
+    if (irCommand != "") {
+            Serial.println("Disparando comando IR!");
+            // Concatena "0x" com o comando recebido
+            String fullCommand = "0x" + irCommand;
+            // Converte o comando de String para uint64_t
+            uint64_t command = strtoull(fullCommand.c_str(), NULL, 16);
+            irsend.sendNEC(command);
+            // irCommand = ""; // Limpa o comando após envio
+            delay(2000); // Ajuste o delay conforme necessário
+        }
+        vTaskDelay(1000 / portTICK_PERIOD_MS); // Delay de 1 segundo
 
   }
   
+}
+
+
+// TELEGRAM ESPERANDO POR NOVA MENSAGEM
+void Task4(void *pvParameters) {
+
+  while (1) {
+
+    if (millis() > lastTimeBotRan + botRequestDelay) {
+
+      int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+
+      if (numNewMessages > 0) {
+
+        handleNewMessages(numNewMessages);
+
+      }
+
+      lastTimeBotRan = millis();
+
+    }
+
+    delay(1000); // Ajuste o atraso conforme necessário
+
+  }
+  
+}
+
+void handleNewMessages(int numNewMessages) {
+
+    Serial.println("handleNewMessages");
+    Serial.println(String(numNewMessages));
+
+    for (int i=0; i<numNewMessages; i++) {
+        // Chat id of the requester
+        String chat_id = String(bot.messages[i].chat_id);
+
+        if (chat_id != CHAT_ID){
+
+            bot.sendMessage(chat_id, "Unauthorized user", "");
+            continue;
+
+        }
+
+        // Print the received message
+        String text = bot.messages[i].text;
+        Serial.println(text);
+        String from_name = bot.messages[i].from_name;
+
+        if (text == "/start") {
+
+            String welcome = "Welcome, " + from_name + ".\n";
+            welcome += "Use the following commands to control your outputs.\n\n";
+            welcome += "/teste para to try the infravermelho \n";
+            bot.sendMessage(chat_id, welcome, "");
+
+        } else if (text == "/temperatura") {
+
+            // Use the global variables to construct the message
+            String message = "Status, Tempo(uS), Umidade(%), Temperatura(C)\n";
+            message += globalStatus;
+            message += ", ";
+            message += String(delayIntervalo); // Tempo não é diretamente disponível, você pode ajustar conforme necessário
+            message += ", ";
+            message += String(globalHumidity, 1); // Uma casa decimal
+            message += ", ";
+            message += String(globalTemperature, 1); // Uma casa decimal
+            bot.sendMessage(chat_id, message, "");
+
+
+        } else {
+          
+            irCommand = text;
+            char message[256];
+            snprintf(message, sizeof(message), "Comando realizado: %s", text);
+            bot.sendMessage(chat_id, message, "");
+
+           // bot.sendMessage(chat_id, "Comando não reconhecido :(", "");
+
+        }
+
+    }
+
 }
