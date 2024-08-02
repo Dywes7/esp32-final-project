@@ -3,6 +3,7 @@
 #include <IRremoteESP8266.h>
 #include <IRrecv.h>
 #include <IRutils.h>
+#include <IRsend.h>
 
 /* """"""Sensor de Temperatura Secion"""""" */
 //DEFINIÇÃO DE PINOS
@@ -22,13 +23,21 @@ IRrecv irrecv(kRecvPin);
 decode_results results;
 
 
+/* """"""Emissor Infravermelho Secion"""""" */
+const uint16_t kIrLed = 5;
+IRsend irsend(kIrLed);
+
+
 // Declaração das funções das tarefas
 void Task1(void *pvParameters);
 void Task2(void *pvParameters);
+void Task3(void *pvParameters);
 
 void setup() {
   // Inicialização do monitor serial
   Serial.begin(115200);
+
+  irsend.begin();
 
   irrecv.enableIRIn();
   while (!Serial)  // Wait for the serial connection to be establised.
@@ -55,6 +64,14 @@ void setup() {
   xTaskCreate(
     Task2,   // Função da tarefa
     "Task 2", // Nome da tarefa
+    10000,    // Tamanho da pilha
+    NULL,    // Parâmetro para a tarefa
+    1,       // Prioridade da tarefa
+    NULL);   // Handle da tarefa
+
+  xTaskCreate(
+    Task3,   // Função da tarefa
+    "Task 3", // Nome da tarefa
     10000,    // Tamanho da pilha
     NULL,    // Parâmetro para a tarefa
     1,       // Prioridade da tarefa
@@ -134,4 +151,17 @@ void Task2(void *pvParameters) {
 
 //    vTaskDelay(2000 / portTICK_PERIOD_MS); // Delay de 2 segundos
   }
+}
+
+// Emissor Infravermelho
+void Task3(void *pvParameters) {
+
+  while (1) {
+
+    Serial.println("Botao apertado!");
+    irsend.sendNEC(0x57E3E817);
+    delay(2000);
+
+  }
+  
 }
