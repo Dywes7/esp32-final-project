@@ -8,6 +8,7 @@
 #include <WiFiClientSecure.h>
 #include <UniversalTelegramBot.h>
 #include <ArduinoJson.h>
+#include <ir_Samsung.h>
 
 
 /* """"""Telegra* Section """""" */
@@ -44,8 +45,11 @@ decode_results results;
 
 
 /* """"""LedEmissor Infravermelho Secion"""""" */
-const uint16_t kIrLed = 5;
-IRsend irsend(kIrLed);
+// const uint16_t kIrLed = 5;
+// IRsend irsend(kIrLed);
+
+const uint16_t kIrLed = 5;  // ESP8266 GPIO pin to use. Recommended: 4 (D2).
+IRSamsungAc ac(kIrLed);     // Set the GPIO used for sending messages.
 
 
 String irCommand = ""; // Variável global para armazenar o comando IR
@@ -54,18 +58,40 @@ float globalTemperature = 0.0;
 float globalHumidity = 0.0;
 String globalStatus = "OK"; // Status do sensor
 
+String stateAtual = "";
+
 // Declaração das funções das tarefas
 void Task1(void *pvParameters);
 void Task2(void *pvParameters);
 void Task3(void *pvParameters);
 void Task4(void *pvParameters);
 void handleNewMessages(int numNewMessages);
+String getStateString();
+void printState();
+
+void printState() {
+  // Display the settings.
+  Serial.println("Samsung A/C remote is in the following state:");
+  Serial.printf("  %s\n", ac.toString().c_str());
+}
 
 void setup() {
-  // Inicialização do monitor serial
-  Serial.begin(115200);
 
-  irsend.begin();
+  ac.begin();
+  Serial.begin(115200);
+  delay(200);
+
+  // Set up what we want to send. See ir_Samsung.cpp for all the options.
+  Serial.println("Default state of the remote.");
+  printState();
+  Serial.println("Setting initial state for A/C.");
+  ac.off();
+  ac.setFan(kSamsungAcFanLow);
+  ac.setMode(kSamsungAcCool);
+  ac.setTemp(25);
+  ac.setSwing(false);
+  stateAtual = getStateString();
+  printState();
 
   irrecv.enableIRIn();
   while (!Serial)  // Wait for the serial connection to be establised.
@@ -214,17 +240,58 @@ void Task3(void *pvParameters) {
 
   while (1) {
 
-    if (irCommand != "") {
-            Serial.println("Disparando comando IR!");
-            // Concatena "0x" com o comando recebido
-            String fullCommand = "0x" + irCommand;
-            // Converte o comando de String para uint64_t
-            uint64_t command = strtoull(fullCommand.c_str(), NULL, 16);
-            irsend.sendNEC(command);
-            // irCommand = ""; // Limpa o comando após envio
-            delay(2000); // Ajuste o delay conforme necessário
-        }
-        vTaskDelay(1000 / portTICK_PERIOD_MS); // Delay de 1 segundo
+    // Turn the A/C unit on
+  Serial.println("Turn on the A/C ...");
+  ac.on();
+  ac.send();
+  stateAtual = getStateString();
+  printState();
+  delay(10000);  // wait 15 seconds
+  // and set to cooling mode.
+//  Serial.println("Set the A/C mode to cooling ...");
+//  ac.setMode(kSamsungAcCool);
+//  ac.send();
+//  printState();
+//  delay(15000);  // wait 15 seconds
+//
+//  // Increase the fan speed.
+//  Serial.println("Set the fan to high and the swing on ...");
+//  ac.setFan(kSamsungAcFanHigh);
+//  ac.setSwing(true);
+//  ac.send();
+//  printState();
+//  delay(15000);
+//
+//  // Change to Fan mode, lower the speed, and stop the swing.
+//  Serial.println("Set the A/C to fan only with a low speed, & no swing ...");
+//  ac.setSwing(false);
+//  ac.setMode(kSamsungAcFan);
+//  ac.setFan(kSamsungAcFanLow);
+//  ac.send();
+//  printState();
+//  delay(15000);
+
+
+//  int currentTemp = ac.getTemp();
+//
+//  Serial.print("Temperatura é: ");
+//  Serial.println(currentTemp);
+//
+//  ac.setTemp(17);
+//  ac.send();
+//
+//  currentTemp = ac.getTemp();
+//
+//  Serial.print("Temperatura é: ");
+//  Serial.println(currentTemp);
+
+  // Turn the A/C unit off.
+  Serial.println("Turn off the A/C ...");
+  ac.off();
+  ac.send();
+  stateAtual = getStateString();
+  printState();
+  delay(10000);  // wait 15 seconds
 
   }
   
@@ -298,6 +365,10 @@ void handleNewMessages(int numNewMessages) {
             bot.sendMessage(chat_id, message, "");
 
 
+        } else if (text =="/state") {
+          
+          bot.sendMessage(chat_id, stateAtual, "");
+
         } else {
           
             irCommand = text;
@@ -310,5 +381,14 @@ void handleNewMessages(int numNewMessages) {
         }
 
     }
+
+}
+
+
+String getStateString() {
+
+  String stateString = "Samsung A/C remote is in the following state:\n";
+  stateString += ac.toString().c_str();
+  return stateString;
 
 }
