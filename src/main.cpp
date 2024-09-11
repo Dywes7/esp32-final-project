@@ -41,7 +41,7 @@ dht sensorDHT;
 /* """"""Receptor Infravermelho Secion"""""" */
 const uint16_t kRecvPin = 14;
 IRrecv irrecv(kRecvPin);
-decode_results results;
+decode_results results;  
 
 
 /* """"""LedEmissor Infravermelho Secion"""""" */
@@ -140,7 +140,7 @@ void setup() {
     NULL);   // Handle da tarefa
 
 
-    // Inicializar conex˜ao Wi-Fi
+    // Inicializar conexão Wi-Fi
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
     #ifdef ESP32
