@@ -88,7 +88,7 @@ void setup() {
   ac.off();
   ac.setFan(kSamsungAcFanLow);
   ac.setMode(kSamsungAcCool);
-  ac.setTemp(25);
+  ac.setTemp(24);
   ac.setSwing(false);
   stateAtual = getStateString();
   printState();
@@ -165,40 +165,39 @@ void loop() {
 // Medidor de Temperatura
 void Task1(void *pvParameters) {
   while (1) {
-    // Serial.println("Task 1 is running");
-
-    if ( (millis() - delayIntervalo) > intervalo ) {
-      //LEITURA DOS DADOS
+    // Verifica o intervalo para leitura
+    if ((millis() - delayIntervalo) > intervalo) {
+      // LEITURA DOS DADOS
       unsigned long start = micros();
       int chk = sensorDHT.read22(pinSensor);
       unsigned long stop = micros();
 
       Serial.println("\nStatus,\tTempo(uS),\tUmidade(%),\tTemperatura(C)");
-  
-      // VERIFICA SE HOUVE ERRO
+
+      // VERIFICA SE HOUVE ERRO NA LEITURA
       switch (chk)
       {
       case DHTLIB_OK:
-          Serial.print("OK,\t");
-          break;
+        Serial.print("OK,\t");
+        break;
       case DHTLIB_ERROR_CHECKSUM:
-          Serial.print("Checksum error,\t");
-          break;
+        Serial.print("Checksum error,\t");
+        break;
       case DHTLIB_ERROR_TIMEOUT:
-          Serial.print("Time out error,\t");
-          break;
+        Serial.print("Time out error,\t");
+        break;
       case DHTLIB_ERROR_CONNECT:
-          Serial.print("Connect error,\t");
-          break;
+        Serial.print("Connect error,\t");
+        break;
       case DHTLIB_ERROR_ACK_L:
-          Serial.print("Ack Low error,\t");
-          break;
+        Serial.print("Ack Low error,\t");
+        break;
       case DHTLIB_ERROR_ACK_H:
-          Serial.print("Ack High error,\t");
-          break;
+        Serial.print("Ack High error,\t");
+        break;
       default:
-          Serial.print("Unknown error,\t");
-          break;
+        Serial.print("Unknown error,\t");
+        break;
       }
 
       globalTemperature = sensorDHT.temperature;
@@ -211,12 +210,51 @@ void Task1(void *pvParameters) {
       Serial.print(",\t\t");
       Serial.println(sensorDHT.temperature, 1 /*FORMATAÇÃO PARA UMA CASA DECIMAL*/);
 
+      // Obter a temperatura atual configurada no ar-condicionado
+      int currentTemp = ac.getTemp();
+      
+      String message;  // Variável para armazenar a mensagem do Telegram
+
+      // Verificar se a temperatura ambiente é maior ou igual a 25°C
+      if (globalTemperature >= 25.0) {
+        // Verificar se a temperatura configurada no ar-condicionado é maior que 16 (mínima temperatura geralmente permitida)
+        if (currentTemp > 16) {
+          // Diminuir a temperatura em 1 grau
+          ac.setTemp(currentTemp - 1);
+          ac.send(); // Enviar comando infravermelho
+
+          Serial.print("Temperatura no ar-condicionado ajustada para: ");
+          Serial.println(currentTemp - 1);
+
+          // Enviar mensagem via Telegram
+          message = "A temperatura do ar-condicionado foi **diminuída** para " + String(currentTemp - 1) + "°C.";
+          bot.sendMessage(CHAT_ID, message, "");
+        }
+      }
+      // Verificar se a temperatura ambiente é menor ou igual a 20°C
+      else if (globalTemperature <= 20.0) {
+        // Verificar se a temperatura configurada no ar-condicionado é menor que 30 (máxima temperatura geralmente permitida)
+        if (currentTemp < 30) {
+          // Aumentar a temperatura em 1 grau
+          ac.setTemp(currentTemp + 1);
+          ac.send(); // Enviar comando infravermelho
+
+          Serial.print("Temperatura no ar-condicionado ajustada para: ");
+          Serial.println(currentTemp + 1);
+
+          // Enviar mensagem via Telegram
+          message = "A temperatura do ar-condicionado foi **aumentada** para " + String(currentTemp + 1) + "°C.";
+          bot.sendMessage(CHAT_ID, message, "");
+        }
+      }
+
       delayIntervalo = millis();
-    };
+    }
 
     vTaskDelay(1000 / portTICK_PERIOD_MS); // Delay de 1 segundo
   }
 }
+
 
 // Receptor Infravermelho
 void Task2(void *pvParameters) {
@@ -247,43 +285,7 @@ void Task3(void *pvParameters) {
   stateAtual = getStateString();
   printState();
   delay(10000);  // wait 15 seconds
-  // and set to cooling mode.
-//  Serial.println("Set the A/C mode to cooling ...");
-//  ac.setMode(kSamsungAcCool);
-//  ac.send();
-//  printState();
-//  delay(15000);  // wait 15 seconds
-//
-//  // Increase the fan speed.
-//  Serial.println("Set the fan to high and the swing on ...");
-//  ac.setFan(kSamsungAcFanHigh);
-//  ac.setSwing(true);
-//  ac.send();
-//  printState();
-//  delay(15000);
-//
-//  // Change to Fan mode, lower the speed, and stop the swing.
-//  Serial.println("Set the A/C to fan only with a low speed, & no swing ...");
-//  ac.setSwing(false);
-//  ac.setMode(kSamsungAcFan);
-//  ac.setFan(kSamsungAcFanLow);
-//  ac.send();
-//  printState();
-//  delay(15000);
 
-
-//  int currentTemp = ac.getTemp();
-//
-//  Serial.print("Temperatura é: ");
-//  Serial.println(currentTemp);
-//
-//  ac.setTemp(17);
-//  ac.send();
-//
-//  currentTemp = ac.getTemp();
-//
-//  Serial.print("Temperatura é: ");
-//  Serial.println(currentTemp);
 
   // Turn the A/C unit off.
   Serial.println("Turn off the A/C ...");
