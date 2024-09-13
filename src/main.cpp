@@ -41,7 +41,7 @@ dht sensorDHT;
 /* """"""Receptor Infravermelho Secion"""""" */
 const uint16_t kRecvPin = 14;
 IRrecv irrecv(kRecvPin);
-decode_results results;
+decode_results results;  
 
 
 /* """"""LedEmissor Infravermelho Secion"""""" */
@@ -59,6 +59,13 @@ float globalHumidity = 0.0;
 String globalStatus = "OK"; // Status do sensor
 
 String stateAtual = "";
+
+/* Adicionando variável global para controle de tempo */
+unsigned long lastCommandTime = 0; // Armazena o tempo do último comando enviado
+const unsigned long commandInterval = 20 * 1000; // Intervalo de 5 minutos (em milissegundos)
+
+String fakeCommand = "";  // Variável global para comando fictício
+int lastSetTemp = 0;
 
 // Declaração das funções das tarefas
 void Task1(void *pvParameters);
@@ -85,7 +92,7 @@ void setup() {
   Serial.println("Default state of the remote.");
   printState();
   Serial.println("Setting initial state for A/C.");
-  ac.off();
+  ac.on();
   ac.setFan(kSamsungAcFanLow);
   ac.setMode(kSamsungAcCool);
   ac.setTemp(25);
@@ -122,14 +129,14 @@ void setup() {
     NULL,    // Parâmetro para a tarefa
     2,       // Prioridade da tarefa
     NULL);   // Handle da tarefa
-
-  xTaskCreate(
-    Task3,   // Função da tarefa
-    "Task 3", // Nome da tarefa
-    10000,    // Tamanho da pilha
-    NULL,    // Parâmetro para a tarefa
-    4,       // Prioridade da tarefa
-    NULL);   // Handle da tarefa
+ 
+  //xTaskCreate(
+  //  Task3,   // Função da tarefa
+  //  "Task 3", // Nome da tarefa
+  //  10000,    // Tamanho da pilha
+  //  NULL,    // Parâmetro para a tarefa
+  //  4,       // Prioridade da tarefa
+  //  NULL);   // Handle da tarefa
 
     xTaskCreate(
     Task4,   // Função da tarefa
@@ -140,7 +147,7 @@ void setup() {
     NULL);   // Handle da tarefa
 
 
-    // Inicializar conex˜ao Wi-Fi
+    // Inicializar conexão Wi-Fi
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
     #ifdef ESP32
@@ -201,7 +208,13 @@ void Task1(void *pvParameters) {
           break;
       }
 
-      globalTemperature = sensorDHT.temperature;
+
+      if (chk == DHTLIB_OK) {
+
+        globalTemperature = sensorDHT.temperature;
+
+      }
+
       globalHumidity = sensorDHT.humidity;
 
       // EXIBINDO DADOS LIDOS
@@ -210,6 +223,65 @@ void Task1(void *pvParameters) {
       Serial.print(sensorDHT.humidity, 1 /*FORMATAÇÃO PARA UMA CASA DECIMAL*/);
       Serial.print(",\t\t");
       Serial.println(sensorDHT.temperature, 1 /*FORMATAÇÃO PARA UMA CASA DECIMAL*/);
+
+
+      // Obter a temperatura atual configurada no ar-condicionado
+      int currentTemp = ac.getTemp();
+      
+
+      if ((millis() - lastCommandTime) >= commandInterval) {
+        // Verificar se a temperatura ambiente é maior ou igual a 25°C
+        if (globalTemperature >= 24.0) {
+            Serial.println("Temperatura real: " + String(globalTemperature));
+          // Verificar se a temperatura configurada no ar-condicionado é maior que 16°C
+          if (currentTemp > 16) {
+            // Diminuir a temperatura em 1 grau
+            ac.setTemp(currentTemp - 1);
+            ac.send(); // Enviar comando infravermelho
+
+            Serial.print("Temperatura no ar-condicionado ajustada para: ");
+            Serial.println(currentTemp - 1);
+
+            // Enviar mensagem via Telegram
+            lastSetTemp = currentTemp - 1;  // Atualizar a temperatura ajustada
+            fakeCommand = "diminuir_temp";  // Disparar comando fictício
+
+            Serial.println("Chegou ate aqui 1!!!");
+
+            // Atualizar o tempo do último comando
+            lastCommandTime = millis();
+          }
+        }
+        // Verificar se a temperatura ambiente é menor ou igual a 20°C
+        else if (globalTemperature <= 22.0) {
+          Serial.println("Temperatura real: " + String(globalTemperature));
+          // Verificar se a temperatura configurada no ar-condicionado é menor que 30°C
+          if (currentTemp < 30) {
+            // Aumentar a temperatura em 1 grau
+            ac.setTemp(currentTemp + 1);
+            ac.send(); // Enviar comando infravermelho
+
+            Serial.print("Temperatura no ar-condicionado ajustada para: ");
+            Serial.println(currentTemp + 1);
+
+            // Enviar mensagem via Telegram
+            lastSetTemp = currentTemp + 1;  // Atualizar a temperatura ajustada
+            fakeCommand = "aumentar_temp";  // Disparar comando fictício
+
+            Serial.println("Chegou ate aqui 2!!!");
+
+            // Atualizar o tempo do último comando
+            lastCommandTime = millis();
+          }
+        } else {
+          fakeCommand = "";
+          Serial.println("Temperatura Ideal.");
+        }
+      } else {
+        // Caso o intervalo de 5 minutos não tenha passado, exibir mensagem no Serial Monitor
+        Serial.println("Aguardando 20 segundos antes de enviar um novo comando...");
+      }
+
 
       delayIntervalo = millis();
     };
@@ -236,72 +308,39 @@ void Task2(void *pvParameters) {
 }
 
 // Emissor Infravermelho
-void Task3(void *pvParameters) {
-
-  while (1) {
-
-    // Turn the A/C unit on
-  Serial.println("Turn on the A/C ...");
-  ac.on();
-  ac.send();
-  stateAtual = getStateString();
-  printState();
-  delay(10000);  // wait 15 seconds
-  // and set to cooling mode.
-//  Serial.println("Set the A/C mode to cooling ...");
-//  ac.setMode(kSamsungAcCool);
+//void Task3(void *pvParameters) {
+//
+//  while (1) {
+//
+//    // Turn the A/C unit on
+//  Serial.println("Turn on the A/C ...");
+//  ac.on();
 //  ac.send();
+//  stateAtual = getStateString();
 //  printState();
-//  delay(15000);  // wait 15 seconds
+//  delay(10000);  // wait 15 seconds
 //
-//  // Increase the fan speed.
-//  Serial.println("Set the fan to high and the swing on ...");
-//  ac.setFan(kSamsungAcFanHigh);
-//  ac.setSwing(true);
+//  Serial.println("Turn off the A/C ...");
+//  ac.off();
 //  ac.send();
+//  stateAtual = getStateString();
 //  printState();
-//  delay(15000);
+//  delay(10000);  // wait 15 seconds
 //
-//  // Change to Fan mode, lower the speed, and stop the swing.
-//  Serial.println("Set the A/C to fan only with a low speed, & no swing ...");
-//  ac.setSwing(false);
-//  ac.setMode(kSamsungAcFan);
-//  ac.setFan(kSamsungAcFanLow);
-//  ac.send();
-//  printState();
-//  delay(15000);
-
-
-//  int currentTemp = ac.getTemp();
-//
-//  Serial.print("Temperatura é: ");
-//  Serial.println(currentTemp);
-//
-//  ac.setTemp(17);
-//  ac.send();
-//
-//  currentTemp = ac.getTemp();
-//
-//  Serial.print("Temperatura é: ");
-//  Serial.println(currentTemp);
-
-  // Turn the A/C unit off.
-  Serial.println("Turn off the A/C ...");
-  ac.off();
-  ac.send();
-  stateAtual = getStateString();
-  printState();
-  delay(10000);  // wait 15 seconds
-
-  }
-  
-}
+//  }
+//  
+//}
 
 
 // TELEGRAM ESPERANDO POR NOVA MENSAGEM
 void Task4(void *pvParameters) {
 
   while (1) {
+
+    if (fakeCommand != "") {
+      Serial.println("Comando fictício detectado.");
+      handleNewMessages(0);  // Chama handleNewMessages com 0 mensagens novas, mas ainda processa o comando fictício
+    }
 
     if (millis() > lastTimeBotRan + botRequestDelay) {
 
@@ -327,6 +366,24 @@ void handleNewMessages(int numNewMessages) {
 
     Serial.println("handleNewMessages");
     Serial.println(String(numNewMessages));
+
+    if (fakeCommand != "") {
+    String chat_id = CHAT_ID;
+    String message;
+
+    if (fakeCommand == "diminuir_temp") {
+      message = "A temperatura do ar-condicionado foi **diminuída** para " + String(lastSetTemp) + "°C.";
+    } else if (fakeCommand == "aumentar_temp") {
+      message = "A temperatura do ar-condicionado foi **aumentada** para " + String(lastSetTemp) + "°C.";
+    }
+
+    // Enviar a mensagem correspondente ao comando fictício
+    bot.sendMessage(chat_id, message, "");
+
+    // Reseta o comando fictício para não processá-lo novamente
+    fakeCommand = "";
+    return;  // Não processar mais nada se o comando fictício foi enviado
+    }
 
     for (int i=0; i<numNewMessages; i++) {
         // Chat id of the requester
