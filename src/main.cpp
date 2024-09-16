@@ -57,7 +57,6 @@ String irCommand = ""; // Variável global para armazenar o comando IR
 float globalTemperature = 0.0;
 float globalHumidity = 0.0;
 String globalStatus = "OK"; // Status do sensor
-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
 String stateAtual = "";
 
 /* Adicionando variável global para controle de tempo */
