@@ -9,6 +9,8 @@
 #include <UniversalTelegramBot.h>
 #include <ArduinoJson.h>
 #include <ir_Samsung.h>
+#include <FS.h> //File System [ https://github.com/espressif/arduino
+#include <SPIFFS.h>
 
 
 /* """"""Telegra* Section """""" */
@@ -39,7 +41,7 @@ dht sensorDHT;
 
 
 /* """"""Receptor Infravermelho Secion"""""" */
-const uint16_t kRecvPin = 14;
+const uint16_t kRecvPin = 15;
 IRrecv irrecv(kRecvPin);
 decode_results results;  
 
@@ -66,6 +68,7 @@ const unsigned long commandInterval = 20 * 1000; // Intervalo de 5 minutos (em m
 String fakeCommand = "";  // Variável global para comando fictício
 int lastSetTemp = 0;
 
+
 // Declaração das funções das tarefas
 void Task1(void *pvParameters);
 void Task2(void *pvParameters);
@@ -74,6 +77,10 @@ void Task4(void *pvParameters);
 void handleNewMessages(int numNewMessages);
 String getStateString();
 void printState();
+bool writeFile(String values, String pathFile, bool appending);
+String readFile(String pathFile);
+void listFiles(String path);
+bool deleteFile(String pathFile);
 
 void printState() {
   // Display the settings.
@@ -241,11 +248,17 @@ void Task1(void *pvParameters) {
             Serial.print("Temperatura no ar-condicionado ajustada para: ");
             Serial.println(currentTemp - 1);
 
+            String messa = "Temperatura no ar-condicionado diminuida para: ";
+            messa += (String)(currentTemp - 1);
+
+            Serial.println("\nEscreve no arquivo");
+            writeFile(messa, "/historico.txt", true);
+
+
             // Enviar mensagem via Telegram
             lastSetTemp = currentTemp - 1;  // Atualizar a temperatura ajustada
             fakeCommand = "diminuir_temp";  // Disparar comando fictício
 
-            Serial.println("Chegou ate aqui 1!!!");
 
             // Atualizar o tempo do último comando
             lastCommandTime = millis();
@@ -263,11 +276,16 @@ void Task1(void *pvParameters) {
             Serial.print("Temperatura no ar-condicionado ajustada para: ");
             Serial.println(currentTemp + 1);
 
+            String messa = "Temperatura no ar-condicionado aumentada para: ";
+            messa += (String)(currentTemp - 1);
+
+            Serial.println("\nEscreve no arquivo");
+            writeFile(messa, "/historico.txt", true);
+
+
             // Enviar mensagem via Telegram
             lastSetTemp = currentTemp + 1;  // Atualizar a temperatura ajustada
             fakeCommand = "aumentar_temp";  // Disparar comando fictício
-
-            Serial.println("Chegou ate aqui 2!!!");
 
             // Atualizar o tempo do último comando
             lastCommandTime = millis();
@@ -425,6 +443,24 @@ void handleNewMessages(int numNewMessages) {
           
           bot.sendMessage(chat_id, stateAtual, "");
 
+        } else if (text =="/ligar") {
+          
+          ac.on();
+          ac.send();
+          bot.sendMessage(chat_id, "Comando para ligar enviado!", "");
+
+        } else if (text =="/desligar") {
+          
+          ac.off();
+          ac.send();
+          bot.sendMessage(chat_id, "Comando para desligar enviado!", "");
+
+        } else if (text =="/historico") {
+          
+          Serial.println("\nVisualizando histórico...");
+          readFile("/historico.txt");
+          bot.sendMessage(chat_id, "Comando para visualizar histórico recebido!", "");
+
         } else {
           
             irCommand = text;
@@ -447,4 +483,95 @@ String getStateString() {
   stateString += ac.toString().c_str();
   return stateString;
 
+}
+
+/*--- ESCREVE O ARQUIVO ---*/
+bool writeFile(String values, String pathFile, bool appending) {
+  char *mode = "w"; //open for writing (creates file if it doesn’t exist
+
+  if (appending) mode = "a"; //open for appending (creates file if it do
+  Serial.println("- Writing file: " + pathFile);
+  Serial.println("- Values: " + values);
+  SPIFFS.begin(true);
+  File wFile = SPIFFS.open(pathFile, mode);
+
+  if (!wFile) {
+    Serial.println("- Failed to write file.");
+    return false;
+  } else {
+    wFile.println(values);
+    Serial.println("- Written!");
+  }
+
+  wFile.close();
+  return true;
+}
+
+
+/*--- LEITURA DO ARQUIVO ---*/
+String readFile(String pathFile) {
+  Serial.println("- Reading file: " + pathFile);
+  SPIFFS.begin(true);
+
+  File rFile = SPIFFS.open(pathFile, "r");
+  String values;
+
+    if (!rFile) {
+      Serial.println("- Failed to open file.");
+    } else {
+      while (rFile.available()) {
+      values += rFile.readString();
+    }
+    Serial.println("- File values: " + values);
+  }
+  rFile.close();
+  return values;
+}
+
+/*--- APAGA O ARQUIVO ---*/
+bool deleteFile(String pathFile) {
+  Serial.println("- Deleting file: " + pathFile);
+  SPIFFS.begin(true);
+  if (!SPIFFS.remove(pathFile)) {
+    Serial.println("- Delete failed.");
+    return false;
+  } else {
+    Serial.println("- File deleted!");
+    return true;
+  }
+}
+
+
+/*--- LISTA OS ARQUIVOS DOS DIRET´ORIOS ---*/
+void listFiles(String path) {
+
+  Serial.println("- Listing files: " + path);
+  SPIFFS.begin(true);
+
+  File root = SPIFFS.open(path);
+  
+  if (!root) {
+    Serial.println("- Failed to open directory");
+    return;
+  }
+  
+  if (!root.isDirectory()) {
+    Serial.println("- Not a directory: " + path);
+    return;
+  }
+
+  File file = root.openNextFile();
+  while (file) {
+    
+    if (file.isDirectory()) {
+      Serial.print("- Dir: ");
+      Serial.println(file.name());
+    } else {
+      Serial.print("- File: ");
+      Serial.print(file.name());
+      Serial.print("\tSize: ");
+      Serial.println(file.size());
+    }
+      file = root.openNextFile();
+  }
 }
