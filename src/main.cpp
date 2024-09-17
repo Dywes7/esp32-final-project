@@ -1,16 +1,27 @@
 #include <Arduino.h>
 #include <dht.h>
 #include <IRremoteESP8266.h>
-#include <IRrecv.h>
+// #include <IRrecv.h>
 #include <IRutils.h>
 #include <IRsend.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <UniversalTelegramBot.h>
-#include <ArduinoJson.h>
 #include <ir_Samsung.h>
-#include <FS.h> //File System [ https://github.com/espressif/arduino
-#include <SPIFFS.h>
+// #include <FS.h> //File System [ https://github.com/espressif/arduino
+// #include <SPIFFS.h>
+#include <ESP_Mail_Client.h>
+#include "esp_task_wdt.h"
+#include <time.h>
+
+// Defines para e-mail
+#define SMTP_server "marte.great.ufc.br"
+#define SMTP_Port 465
+#define sender_email "esp32@great.ufc.br"
+#define sender_password "esp32arduino"
+#define Recipient_email "diogo.feitosa@great.ufc.br"
+#define Recipient_name ""
+
 
 
 /* """"""Telegra* Section """""" */
@@ -19,6 +30,10 @@
 
 const char* ssid = "GRT-TI";
 const char* password = "&*(suporte)_+";
+
+const char* ntpServer = "pool.ntp.org";  // Servidor NTP para sincronização de tempo
+const long gmtOffset_sec = -10800;       // Desvio do fuso horário em segundos (-3 horas para o Brasil)
+const int daylightOffset_sec = 3600;  
 
 WiFiClientSecure client;
 UniversalTelegramBot bot(BOTtoken, client);
@@ -47,19 +62,13 @@ decode_results results;
 
 
 /* """"""LedEmissor Infravermelho Secion"""""" */
-// const uint16_t kIrLed = 5;
-// IRsend irsend(kIrLed);
-
 const uint16_t kIrLed = 5;  // ESP8266 GPIO pin to use. Recommended: 4 (D2).
 IRSamsungAc ac(kIrLed);     // Set the GPIO used for sending messages.
 
-
-String irCommand = ""; // Variável global para armazenar o comando IR
-
 float globalTemperature = 0.0;
-float globalHumidity = 0.0;
+// float globalHumidity = 0.0;
 String globalStatus = "OK"; // Status do sensor
-String stateAtual = "";
+// String stateAtual = "";
 
 /* Adicionando variável global para controle de tempo */
 unsigned long lastCommandTime = 0; // Armazena o tempo do último comando enviado
@@ -68,24 +77,41 @@ const unsigned long commandInterval = 20 * 1000; // Intervalo de 5 minutos (em m
 String fakeCommand = "";  // Variável global para comando fictício
 int lastSetTemp = 0;
 
+SMTPSession smtp;
+ESP_Mail_Session session;
+SMTP_Message message;
+String htmlMsg = "";
 
 // Declaração das funções das tarefas
 void Task1(void *pvParameters);
-void Task2(void *pvParameters);
+// void Task2(void *pvParameters);
 void Task3(void *pvParameters);
-void Task4(void *pvParameters);
 void handleNewMessages(int numNewMessages);
 String getStateString();
 void printState();
-bool writeFile(String values, String pathFile, bool appending);
-String readFile(String pathFile);
-void listFiles(String path);
-bool deleteFile(String pathFile);
+//bool writeFile(String values, String pathFile, bool appending);
+// String readFile(String pathFile);
+// void listFiles(String path);
+// bool deleteFile(String pathFile);
+void sendEmail(int i);
+void EmailTask(void *pvParameters);
 
 void printState() {
   // Display the settings.
   Serial.println("Samsung A/C remote is in the following state:");
   Serial.printf("  %s\n", ac.toString().c_str());
+}
+
+void setupTime() {
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    Serial.println("Aguardando sincronização de tempo NTP...");
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) {
+        Serial.println("Falha ao sincronizar o tempo NTP");
+        return;
+    }
+    Serial.println("Sincronização de tempo NTP bem-sucedida!");
+    Serial.println(&timeinfo, "Data/Hora: %Y-%m-%d %H:%M:%S");
 }
 
 void setup() {
@@ -103,7 +129,7 @@ void setup() {
   ac.setMode(kSamsungAcCool);
   ac.setTemp(25);
   ac.setSwing(false);
-  stateAtual = getStateString();
+  // stateAtual = getStateString();
   printState();
 
   irrecv.enableIRIn();
@@ -123,31 +149,23 @@ void setup() {
   xTaskCreate(
     Task1,   // Função da tarefa
     "Task 1", // Nome da tarefa
-    5000,    // Tamanho da pilha
+    10000,    // Tamanho da pilha
     NULL,    // Parâmetro para a tarefa
     1,       // Prioridade da tarefa
     NULL);   // Handle da tarefa
 
-  xTaskCreate(
-    Task2,   // Função da tarefa
-    "Task 2", // Nome da tarefa
-    10000,    // Tamanho da pilha
-    NULL,    // Parâmetro para a tarefa
-    2,       // Prioridade da tarefa
-    NULL);   // Handle da tarefa
- 
-  //xTaskCreate(
-  //  Task3,   // Função da tarefa
-  //  "Task 3", // Nome da tarefa
-  //  10000,    // Tamanho da pilha
-  //  NULL,    // Parâmetro para a tarefa
-  //  4,       // Prioridade da tarefa
-  //  NULL);   // Handle da tarefa
+  // xTaskCreate(
+  //   Task2,   // Função da tarefa
+  //   "Task 2", // Nome da tarefa
+  //   10000,    // Tamanho da pilha
+  //   NULL,    // Parâmetro para a tarefa
+  //   4,       // Prioridade da tarefa
+  //   NULL);   // Handle da tarefa
 
     xTaskCreate(
-    Task4,   // Função da tarefa
-    "Task 4", // Nome da tarefa
-    10000,    // Tamanho da pilha
+    Task3,   // Função da tarefa
+    "Task 3", // Nome da tarefa
+    5000,    // Tamanho da pilha
     NULL,    // Parâmetro para a tarefa
     3,       // Prioridade da tarefa
     NULL);   // Handle da tarefa
@@ -168,6 +186,24 @@ void setup() {
     }
     // Printar enderec¸o IP local
     Serial.println(WiFi.localIP());
+
+    // E-mail
+   session.server.host_name = SMTP_server ;
+   session.server.port = SMTP_Port;
+   session.login.email = sender_email;
+   session.login.password = sender_password;
+   session.login.user_domain = "";
+
+   /* Declare the message class */
+  message.sender.name = "ESP 32";
+  message.sender.email = sender_email;
+  message.subject = "ESP32 Testing Email";
+  message.addRecipient(Recipient_name,Recipient_email);
+
+    // Serial.println("\nCria arquivo 'historico.txt'");
+    // writeFile("", "/historico.txt", false);
+
+   setupTime();
     
 }
 
@@ -221,7 +257,7 @@ void Task1(void *pvParameters) {
 
       }
 
-      globalHumidity = sensorDHT.humidity;
+      // globalHumidity = sensorDHT.humidity;
 
       // EXIBINDO DADOS LIDOS
       Serial.print(stop - start);
@@ -238,6 +274,13 @@ void Task1(void *pvParameters) {
       if ((millis() - lastCommandTime) >= commandInterval) {
         // Verificar se a temperatura ambiente é maior ou igual a 25°C
         if (globalTemperature >= 24.0) {
+
+
+            Serial.println("Chegou até aqui 1");
+            //sendEmail(1);
+            xTaskCreate(EmailTask, "Send Email Task", 10000, (void*) 1, 1, NULL);
+
+
             Serial.println("Temperatura real: " + String(globalTemperature));
           // Verificar se a temperatura configurada no ar-condicionado é maior que 16°C
           if (currentTemp > 16) {
@@ -248,11 +291,11 @@ void Task1(void *pvParameters) {
             Serial.print("Temperatura no ar-condicionado ajustada para: ");
             Serial.println(currentTemp - 1);
 
-            String messa = "Temperatura no ar-condicionado diminuida para: ";
-            messa += (String)(currentTemp - 1);
-
-            Serial.println("\nEscreve no arquivo");
-            writeFile(messa, "/historico.txt", true);
+//            String messa = "Temperatura diminuida para: ";
+//            messa += (String)(currentTemp - 1);
+//
+//            Serial.println("\nEscreve no arquivo");
+//            writeFile(messa, "/historico.txt", true);
 
 
             // Enviar mensagem via Telegram
@@ -266,6 +309,11 @@ void Task1(void *pvParameters) {
         }
         // Verificar se a temperatura ambiente é menor ou igual a 20°C
         else if (globalTemperature <= 22.0) {
+
+          Serial.println("Chegou até aqui 2");
+          // sendEmail(0);
+          xTaskCreate(EmailTask, "Send Email Task", 10000, (void*) 0, 1, NULL);
+
           Serial.println("Temperatura real: " + String(globalTemperature));
           // Verificar se a temperatura configurada no ar-condicionado é menor que 30°C
           if (currentTemp < 30) {
@@ -276,11 +324,11 @@ void Task1(void *pvParameters) {
             Serial.print("Temperatura no ar-condicionado ajustada para: ");
             Serial.println(currentTemp + 1);
 
-            String messa = "Temperatura no ar-condicionado aumentada para: ";
-            messa += (String)(currentTemp - 1);
-
-            Serial.println("\nEscreve no arquivo");
-            writeFile(messa, "/historico.txt", true);
+//            String messa = "Temperatura aumentada para: ";
+//            messa += (String)(currentTemp - 1);
+//
+//            Serial.println("\nEscreve no arquivo");
+//            writeFile(messa, "/historico.txt", true);
 
 
             // Enviar mensagem via Telegram
@@ -303,54 +351,30 @@ void Task1(void *pvParameters) {
       delayIntervalo = millis();
     };
 
-    vTaskDelay(1000 / portTICK_PERIOD_MS); // Delay de 1 segundo
+    vTaskDelay(100 / portTICK_PERIOD_MS); // Delay de 1 segundo
   }
 }
 
-// Receptor Infravermelho
-void Task2(void *pvParameters) {
-  while (1) {
-    // Serial.println("Task 2 is running");
-
-    if (irrecv.decode(&results)) {
-        // print() & println() can't handle printing long longs. (uint64_t)
-        serialPrintUint64(results.value, HEX);
-        Serial.println("");
-        irrecv.resume();  // Receive the next value
-      }
-      delay(100);
-
-//    vTaskDelay(2000 / portTICK_PERIOD_MS); // Delay de 2 segundos
-  }
-}
-
-// Emissor Infravermelho
-//void Task3(void *pvParameters) {
-//
+//// Receptor Infravermelho
+//void Task2(void *pvParameters) {
 //  while (1) {
+//    // Serial.println("Task 2 is running");
 //
-//    // Turn the A/C unit on
-//  Serial.println("Turn on the A/C ...");
-//  ac.on();
-//  ac.send();
-//  stateAtual = getStateString();
-//  printState();
-//  delay(10000);  // wait 15 seconds
+//    if (irrecv.decode(&results)) {
+//        // print() & println() can't handle printing long longs. (uint64_t)
+//        serialPrintUint64(results.value, HEX);
+//        Serial.println("");
+//        irrecv.resume();  // Receive the next value
+//      }
+//      delay(100);
 //
-//  Serial.println("Turn off the A/C ...");
-//  ac.off();
-//  ac.send();
-//  stateAtual = getStateString();
-//  printState();
-//  delay(10000);  // wait 15 seconds
-//
+////    vTaskDelay(2000 / portTICK_PERIOD_MS); // Delay de 2 segundos
 //  }
-//  
 //}
 
 
 // TELEGRAM ESPERANDO POR NOVA MENSAGEM
-void Task4(void *pvParameters) {
+void Task3(void *pvParameters) {
 
   while (1) {
 
@@ -422,7 +446,6 @@ void handleNewMessages(int numNewMessages) {
 
             String welcome = "Welcome, " + from_name + ".\n";
             welcome += "Use the following commands to control your outputs.\n\n";
-            welcome += "/teste para to try the infravermelho \n";
             bot.sendMessage(chat_id, welcome, "");
 
         } else if (text == "/temperatura") {
@@ -433,40 +456,37 @@ void handleNewMessages(int numNewMessages) {
             message += ", ";
             message += String(delayIntervalo); // Tempo não é diretamente disponível, você pode ajustar conforme necessário
             message += ", ";
-            message += String(globalHumidity, 1); // Uma casa decimal
-            message += ", ";
+            //message += String(globalHumidity, 1); // Uma casa decimal
+            //message += ", ";
             message += String(globalTemperature, 1); // Uma casa decimal
             bot.sendMessage(chat_id, message, "");
 
 
-        } else if (text =="/state") {
-          
-          bot.sendMessage(chat_id, stateAtual, "");
+        // } else if (text =="/state") {
+        //   
+        //   bot.sendMessage(chat_id, stateAtual, "");
 
-        } else if (text =="/ligar") {
-          
-          ac.on();
-          ac.send();
-          bot.sendMessage(chat_id, "Comando para ligar enviado!", "");
+//        } else if (text =="/ligar") {
+//          
+//          ac.on();
+//          ac.send();
+//          bot.sendMessage(chat_id, "Comando para ligar enviado!", "");
+//
+//        } else if (text =="/desligar") {
+//          
+//          ac.off();
+//          ac.send();
+//          bot.sendMessage(chat_id, "Comando para desligar enviado!", "");
 
-        } else if (text =="/desligar") {
-          
-          ac.off();
-          ac.send();
-          bot.sendMessage(chat_id, "Comando para desligar enviado!", "");
-
-        } else if (text =="/historico") {
-          
-          Serial.println("\nVisualizando histórico...");
-          readFile("/historico.txt");
-          bot.sendMessage(chat_id, "Comando para visualizar histórico recebido!", "");
-
+//        } else if (text =="/historico") {
+//          
+//          Serial.println("\nVisualizando histórico...");
+//          readFile("/historico.txt");
+//          bot.sendMessage(chat_id, "Comando para visualizar histórico recebido!", "");
+//
         } else {
           
-            irCommand = text;
-            char message[256];
-            snprintf(message, sizeof(message), "Comando realizado: %s", text);
-            bot.sendMessage(chat_id, message, "");
+            bot.sendMessage(chat_id, "Comando não encontrado", "");
 
            // bot.sendMessage(chat_id, "Comando não reconhecido :(", "");
 
@@ -485,93 +505,163 @@ String getStateString() {
 
 }
 
-/*--- ESCREVE O ARQUIVO ---*/
-bool writeFile(String values, String pathFile, bool appending) {
-  char *mode = "w"; //open for writing (creates file if it doesn’t exist
+void sendEmail(int i) {
 
-  if (appending) mode = "a"; //open for appending (creates file if it do
-  Serial.println("- Writing file: " + pathFile);
-  Serial.println("- Values: " + values);
-  SPIFFS.begin(true);
-  File wFile = SPIFFS.open(pathFile, mode);
+   
 
-  if (!wFile) {
-    Serial.println("- Failed to write file.");
-    return false;
-  } else {
-    wFile.println(values);
-    Serial.println("- Written!");
-  }
+  Serial.println("Enviando e-mail...");
 
-  wFile.close();
-  return true;
-}
+  String htmlMsg = (i == 1) 
+  ? "<div style=\"color:#000000;\"><h1> A Temperatura no Datacenter está muito Alta! </h1><p> Temperatura está em " 
+  : "<div style=\"color:#000000;\"><h1> A Temperatura no Datacenter está muito Baixa! </h1><p> Temperatura está em ";
 
-
-/*--- LEITURA DO ARQUIVO ---*/
-String readFile(String pathFile) {
-  Serial.println("- Reading file: " + pathFile);
-  SPIFFS.begin(true);
-
-  File rFile = SPIFFS.open(pathFile, "r");
-  String values;
-
-    if (!rFile) {
-      Serial.println("- Failed to open file.");
-    } else {
-      while (rFile.available()) {
-      values += rFile.readString();
-    }
-    Serial.println("- File values: " + values);
-  }
-  rFile.close();
-  return values;
-}
-
-/*--- APAGA O ARQUIVO ---*/
-bool deleteFile(String pathFile) {
-  Serial.println("- Deleting file: " + pathFile);
-  SPIFFS.begin(true);
-  if (!SPIFFS.remove(pathFile)) {
-    Serial.println("- Delete failed.");
-    return false;
-  } else {
-    Serial.println("- File deleted!");
-    return true;
-  }
-}
-
-
-/*--- LISTA OS ARQUIVOS DOS DIRET´ORIOS ---*/
-void listFiles(String path) {
-
-  Serial.println("- Listing files: " + path);
-  SPIFFS.begin(true);
-
-  File root = SPIFFS.open(path);
-  
-  if (!root) {
-    Serial.println("- Failed to open directory");
-    return;
-  }
-  
-  if (!root.isDirectory()) {
-    Serial.println("- Not a directory: " + path);
-    return;
-  }
-
-  File file = root.openNextFile();
-  while (file) {
     
-    if (file.isDirectory()) {
-      Serial.print("- Dir: ");
-      Serial.println(file.name());
-    } else {
-      Serial.print("- File: ");
-      Serial.print(file.name());
-      Serial.print("\tSize: ");
-      Serial.println(file.size());
-    }
-      file = root.openNextFile();
-  }
+    //Send HTML message
+    htmlMsg += (String) globalTemperature;
+    htmlMsg += " °C</p></div>";
+    message.html.content = htmlMsg.c_str();
+    message.html.content = htmlMsg.c_str();
+    message.text.charSet = "us-ascii";
+    message.html.transfer_encoding = Content_Transfer_Encoding::enc_7bit;
+
+  esp_task_wdt_reset();
+
+  if (!smtp.connect(&session))
+
+    return;
+
+    
+  esp_task_wdt_reset();
+
+  if (!MailClient.sendMail(&smtp, &message))
+
+    Serial.print("Error sending Email, ");
+    Serial.println(smtp.errorReason());
+
+  esp_task_wdt_reset();
 }
+
+
+void EmailTask(void *pvParameters) {
+  int emailType = (int) pvParameters;  // Recebe o tipo de e-mail como parâmetro
+  sendEmail(emailType);  // Chama a função sendEmail para enviar o e-mail
+  vTaskDelete(NULL);  // Deleta a tarefa ao finalizar
+}
+
+
+//void Task2(void *pvParameters) {
+//
+//
+//  Serial.println("Chegou até aqui 3");
+//
+//  if (htmlMsg != "") {
+//
+//    
+//
+//    
+//    //Send HTML message
+//  
+//  htmlMsg += (String) globalTemperature;
+//  htmlMsg += " ESP32</p></div>";
+//  message.html.content = htmlMsg.c_str();
+//  message.html.content = htmlMsg.c_str();
+//  message.text.charSet = "us-ascii";
+//  message.html.transfer_encoding = Content_Transfer_Encoding::enc_7bit;
+//
+//
+//
+//  if (!smtp.connect(&session))
+//
+//    return;
+//
+//  if (!MailClient.sendMail(&smtp, &message))
+//
+//    Serial.print("Error sending Email, ");
+//    Serial.println(smtp.errorReason());
+//
+//
+//    htmlMsg = "";
+//
+//  }
+//
+//
+//  
+//}
+
+/*--- ESCREVE O ARQUIVO ---*/
+//bool writeFile(String values, String pathFile, bool appending) {
+//  char *mode = "w"; //open for writing (creates file if it doesn’t exist
+//
+//  if (appending) mode = "a"; //open for appending (creates file if it do
+//  Serial.println("- Writing file: " + pathFile);
+//  Serial.println("- Values: " + values);
+//  SPIFFS.begin(true);
+//  File wFile = SPIFFS.open(pathFile, mode);
+//
+//  if (!wFile) {
+//    Serial.println("- Failed to write file.");
+//    return false;
+//  } else {
+//    wFile.println(values);
+//    Serial.println("- Written!");
+//  }
+//
+//  wFile.close();
+//  return true;
+//}
+//
+//
+///*--- LEITURA DO ARQUIVO ---*/
+//String readFile(String pathFile) {
+//  Serial.println("- Reading file: " + pathFile);
+//  SPIFFS.begin(true);
+//
+//  File rFile = SPIFFS.open(pathFile, "r");
+//  String values;
+//
+//    if (!rFile) {
+//      Serial.println("- Failed to open file.");
+//    } else {
+//      while (rFile.available()) {
+//      values += rFile.readString();
+//    }
+//    Serial.println("- File values: " + values);
+//  }
+//  rFile.close();
+//  return values;
+//}
+//
+//
+///*--- LISTA OS ARQUIVOS DOS DIRET´ORIOS ---*/
+//void listFiles(String path) {
+//
+//  Serial.println("- Listing files: " + path);
+//  SPIFFS.begin(true);
+//
+//  File root = SPIFFS.open(path);
+//  
+//  if (!root) {
+//    Serial.println("- Failed to open directory");
+//    return;
+//  }
+//  
+//  if (!root.isDirectory()) {
+//    Serial.println("- Not a directory: " + path);
+//    return;
+//  }
+//
+//  File file = root.openNextFile();
+//  while (file) {
+//    
+//    if (file.isDirectory()) {
+//      Serial.print("- Dir: ");
+//      Serial.println(file.name());
+//    } else {
+//      Serial.print("- File: ");
+//      Serial.print(file.name());
+//      Serial.print("\tSize: ");
+//      Serial.println(file.size());
+//    }
+//      file = root.openNextFile();
+//  }
+//}
