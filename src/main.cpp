@@ -17,8 +17,8 @@
 #define BOTtoken "6965994152:AAFRiiVZGw56Vt0yliTM6chPSwcdMXz5JIE"
 #define CHAT_ID "5567601893"
 
-const char* ssid = "CASANETE";
-const char* password = "netefeitosa";
+const char* ssid = "Rede-dy";
+const char* password = "dwdywes77";
 
 WiFiClientSecure client;
 UniversalTelegramBot bot(BOTtoken, client);
@@ -61,7 +61,7 @@ String stateAtual = "";
 
 /* Adicionando variável global para controle de tempo */
 unsigned long lastCommandTime = 0; // Armazena o tempo do último comando enviado
-const unsigned long commandInterval = 20 * 1000; // Intervalo de 5 minutos (em milissegundos)
+const unsigned long commandInterval = 30 * 1000; // Intervalo de 5 minutos (em milissegundos)
 
 String fakeCommand = "";  // Variável global para comando fictício
 int lastSetTemp = 0;
@@ -157,6 +157,9 @@ void setup() {
     }
     // Printar enderec¸o IP local
     Serial.println(WiFi.localIP());
+
+    Serial.println("\nEscreve no arquivo");
+    writeFile("", "/historico.txt", false);
     
 }
 
@@ -225,8 +228,14 @@ void Task1(void *pvParameters) {
       
 
       if ((millis() - lastCommandTime) >= commandInterval) {
+
+        String tempg = "Temperatura no datacenter: ";
+        tempg += (String)(globalTemperature);
+
+        Serial.println("\nEscreve no arquivo");
+        writeFile(tempg, "/historico.txt", true);
         // Verificar se a temperatura ambiente é maior ou igual a 25°C
-        if (globalTemperature >= 24.0) {
+        if (globalTemperature >= 23.0) {
             Serial.println("Temperatura real: " + String(globalTemperature));
           // Verificar se a temperatura configurada no ar-condicionado é maior que 16°C
           if (currentTemp > 16) {
@@ -237,11 +246,11 @@ void Task1(void *pvParameters) {
             Serial.print("Temperatura no ar-condicionado ajustada para: ");
             Serial.println(currentTemp - 1);
 
-            String messa = "Temperatura no ar-condicionado diminuida para: ";
-            messa += (String)(currentTemp - 1);
+            // String messa = "Temperatura no ar-condicionado diminuida para: ";
+            // messa += (String)(currentTemp - 1);
 
-            Serial.println("\nEscreve no arquivo");
-            writeFile(messa, "/historico.txt", true);
+            // Serial.println("\nEscreve no arquivo");
+            // writeFile(messa, "/historico.txt", true);
 
 
             // Enviar mensagem via Telegram
@@ -265,11 +274,11 @@ void Task1(void *pvParameters) {
             Serial.print("Temperatura no ar-condicionado ajustada para: ");
             Serial.println(currentTemp + 1);
 
-            String messa = "Temperatura no ar-condicionado aumentada para: ";
-            messa += (String)(currentTemp - 1);
+            // String messa = "Temperatura no ar-condicionado aumentada para: ";
+            // messa += (String)(currentTemp - 1);
 
-            Serial.println("\nEscreve no arquivo");
-            writeFile(messa, "/historico.txt", true);
+            //Serial.println("\nEscreve no arquivo");
+            //writeFile(messa, "/historico.txt", true);
 
 
             // Enviar mensagem via Telegram
@@ -285,7 +294,7 @@ void Task1(void *pvParameters) {
         }
       } else {
         // Caso o intervalo de 5 minutos não tenha passado, exibir mensagem no Serial Monitor
-        Serial.println("Aguardando 20 segundos antes de enviar um novo comando...");
+        Serial.println("Aguardando 30 segundos antes de enviar um novo comando...");
       }
 
 
@@ -423,8 +432,10 @@ void handleNewMessages(int numNewMessages) {
         } else if (text =="/historico") {
           
           Serial.println("\nVisualizando histórico...");
+
+          String retornado = (String)readFile("/historico.txt");
           readFile("/historico.txt");
-          bot.sendMessage(chat_id, "Comando para visualizar histórico recebido!", "");
+          bot.sendMessage(chat_id, retornado, "");
 
         } else {
           
