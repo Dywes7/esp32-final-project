@@ -17,8 +17,8 @@
 #define BOTtoken "6965994152:AAFRiiVZGw56Vt0yliTM6chPSwcdMXz5JIE"
 #define CHAT_ID "5567601893"
 
-const char* ssid = "GRT-TI";
-const char* password = "&*(suporte)_+";
+const char* ssid = "CASANETE";
+const char* password = "netefeitosa";
 
 WiFiClientSecure client;
 UniversalTelegramBot bot(BOTtoken, client);
@@ -47,8 +47,6 @@ decode_results results;
 
 
 /* """"""LedEmissor Infravermelho Secion"""""" */
-// const uint16_t kIrLed = 5;
-// IRsend irsend(kIrLed);
 
 const uint16_t kIrLed = 5;  // ESP8266 GPIO pin to use. Recommended: 4 (D2).
 IRSamsungAc ac(kIrLed);     // Set the GPIO used for sending messages.
@@ -135,18 +133,10 @@ void setup() {
     NULL,    // Parâmetro para a tarefa
     2,       // Prioridade da tarefa
     NULL);   // Handle da tarefa
- 
-  //xTaskCreate(
-  //  Task3,   // Função da tarefa
-  //  "Task 3", // Nome da tarefa
-  //  10000,    // Tamanho da pilha
-  //  NULL,    // Parâmetro para a tarefa
-  //  4,       // Prioridade da tarefa
-  //  NULL);   // Handle da tarefa
 
     xTaskCreate(
-    Task4,   // Função da tarefa
-    "Task 4", // Nome da tarefa
+    Task3,   // Função da tarefa
+    "Task 3", // Nome da tarefa
     10000,    // Tamanho da pilha
     NULL,    // Parâmetro para a tarefa
     3,       // Prioridade da tarefa
@@ -175,7 +165,7 @@ void loop() {
   // O loop pode ficar vazio, pois as tarefas estão sendo gerenciadas pelo FreeRTOS
 }
 
-// Medidor de Temperatura
+// Sensor de Temperatura
 void Task1(void *pvParameters) {
   while (1) {
     // Serial.println("Task 1 is running");
@@ -324,33 +314,9 @@ void Task2(void *pvParameters) {
   }
 }
 
-// Emissor Infravermelho
-//void Task3(void *pvParameters) {
-//
-//  while (1) {
-//
-//    // Turn the A/C unit on
-//  Serial.println("Turn on the A/C ...");
-//  ac.on();
-//  ac.send();
-//  stateAtual = getStateString();
-//  printState();
-//  delay(10000);  // wait 15 seconds
-//
-//  Serial.println("Turn off the A/C ...");
-//  ac.off();
-//  ac.send();
-//  stateAtual = getStateString();
-//  printState();
-//  delay(10000);  // wait 15 seconds
-//
-//  }
-//  
-//}
-
 
 // TELEGRAM ESPERANDO POR NOVA MENSAGEM
-void Task4(void *pvParameters) {
+void Task3(void *pvParameters) {
 
   while (1) {
 
