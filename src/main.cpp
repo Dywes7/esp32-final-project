@@ -71,7 +71,6 @@ int lastSetTemp = 0;
 void Task1(void *pvParameters);
 void Task2(void *pvParameters);
 void Task3(void *pvParameters);
-void Task4(void *pvParameters);
 void handleNewMessages(int numNewMessages);
 String getStateString();
 void printState();
